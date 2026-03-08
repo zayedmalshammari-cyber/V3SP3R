@@ -181,7 +181,8 @@ class RiskAssessor @Inject constructor(
             // LOW risk: read-only new actions
             CommandAction.SEARCH_RESOURCES,
             CommandAction.LIST_VAULT,
-            CommandAction.BROWSE_REPO -> {
+            CommandAction.BROWSE_REPO,
+            CommandAction.GITHUB_SEARCH -> {
                 RiskAssessment(
                     level = RiskLevel.LOW,
                     reason = "Read-only catalog/inventory query",

@@ -644,6 +644,7 @@ class OpenRouterClient @Inject constructor(
             "search_resources", "browse_resources", "find_resources" -> CommandAction.SEARCH_RESOURCES
             "browse_repo", "browse_repository", "list_repo", "repo_browse", "repo_contents" -> CommandAction.BROWSE_REPO
             "download_resource", "download_file", "fetch_resource", "get_resource" -> CommandAction.DOWNLOAD_RESOURCE
+            "github_search", "search_github", "gh_search", "find_on_github" -> CommandAction.GITHUB_SEARCH
             "list_vault", "vault", "scan_vault", "inventory" -> CommandAction.LIST_VAULT
             "run_runbook", "runbook", "diagnostic" -> CommandAction.RUN_RUNBOOK
             "launch_app", "open_app", "start_app", "loader_open" -> CommandAction.LAUNCH_APP
@@ -1058,7 +1059,8 @@ class OpenRouterClient @Inject constructor(
                                 JsonPrimitive("led_control"),
                                 JsonPrimitive("vibro_control"),
                                 JsonPrimitive("browse_repo"),
-                                JsonPrimitive("download_resource")
+                                JsonPrimitive("download_resource"),
+                                JsonPrimitive("github_search")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero")
                         )),
@@ -1178,6 +1180,10 @@ class OpenRouterClient @Inject constructor(
                                 "sub_path" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Sub-path within repo for browse_repo (e.g. 'TVs/Samsung', 'ACs/LG')")
+                                )),
+                                "search_scope" to JsonObject(mapOf(
+                                    "type" to JsonPrimitive("string"),
+                                    "description" to JsonPrimitive("Scope for github_search: 'repositories' (find repos) or 'code' (find files). Default: 'code'. Use 'code' with file extensions like 'extension:ir' or 'extension:sub'.")
                                 ))
                             ))
                         )),

@@ -513,6 +513,15 @@ class CommandExecutor @Inject constructor(
                 executeDownloadResource(downloadUrl.trim(), destPath.trim())
             }
 
+            CommandAction.GITHUB_SEARCH -> {
+                val query = command.args.command
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: throw IllegalArgumentException("Search query required")
+                val scope = command.args.searchScope?.trim()?.lowercase() ?: "code"
+                executeGitHubSearch(query, scope)
+            }
+
             CommandAction.LIST_VAULT -> {
                 val filter = command.args.filter
                 val path = command.args.path
@@ -1104,6 +1113,178 @@ class CommandExecutor @Inject constructor(
             content = "downloaded=$fileName\nsource_url=$url\ntarget_path=$destPath\nsize=${download.bytes.size} bytes",
             message = "Downloaded $fileName to $destPath (${download.bytes.size} bytes)"
         )
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // GITHUB SEARCH — search GitHub for Flipper resources
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Search GitHub using the Search API. Supports three scopes:
+     * - "repositories" — find repos (e.g. "flipper infrared remote")
+     * - "code" — find specific files (e.g. "Samsung TV .ir extension:ir")
+     * - "topics" — find repos by topic tags
+     *
+     * Unauthenticated rate limit: 10 requests/minute (plenty for agent use).
+     * Results are Flipper-focused: we auto-append "flipper" to queries that
+     * don't already mention it, to keep results relevant.
+     */
+    private suspend fun executeGitHubSearch(query: String, scope: String): CommandResultData {
+        val validScopes = setOf("repositories", "code", "repos")
+        val resolvedScope = when (scope) {
+            "repos", "repositories", "repo" -> "repositories"
+            "code", "files", "file" -> "code"
+            else -> "code"
+        }
+
+        // Auto-append "flipper" context if not already present
+        val enrichedQuery = if (query.contains("flipper", ignoreCase = true) ||
+            query.contains("flipperzero", ignoreCase = true)) {
+            query
+        } else {
+            "$query flipper"
+        }
+
+        // Build GitHub Search API URL
+        val encodedQuery = java.net.URLEncoder.encode(enrichedQuery, "UTF-8")
+        val apiUrl = "https://api.github.com/search/$resolvedScope?q=$encodedQuery&per_page=15&sort=stars&order=desc"
+
+        val json = downloadText(apiUrl)
+
+        val content = when (resolvedScope) {
+            "repositories" -> parseGitHubRepoSearchResults(json, query)
+            "code" -> parseGitHubCodeSearchResults(json, query)
+            else -> parseGitHubCodeSearchResults(json, query)
+        }
+
+        return CommandResultData(
+            content = content,
+            message = "GitHub search ($resolvedScope) returned results for \"$query\""
+        )
+    }
+
+    private fun parseGitHubRepoSearchResults(json: String, query: String): String {
+        return buildString {
+            try {
+                val root = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    .parseToJsonElement(json)
+                if (root !is kotlinx.serialization.json.JsonObject) {
+                    append("GitHub API returned unexpected format. May be rate-limited (10 req/min unauthenticated).")
+                    return@buildString
+                }
+
+                val totalCount = root["total_count"]?.let {
+                    (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
+                } ?: 0
+                val items = root["items"] as? kotlinx.serialization.json.JsonArray
+
+                if (items == null || items.isEmpty()) {
+                    append("No GitHub repositories found for \"$query\".")
+                    return@buildString
+                }
+
+                appendLine("GitHub Repository Search: \"$query\" ($totalCount total)")
+                appendLine("---")
+
+                items.take(15).forEachIndexed { index, item ->
+                    if (item !is kotlinx.serialization.json.JsonObject) return@forEachIndexed
+                    val name = item.str("full_name") ?: return@forEachIndexed
+                    val desc = item.str("description") ?: ""
+                    val stars = item.num("stargazers_count") ?: 0
+                    val url = item.str("html_url") ?: ""
+                    val language = item.str("language") ?: ""
+                    val updated = item.str("updated_at")?.take(10) ?: ""
+
+                    appendLine("${index + 1}. $name ($stars stars)")
+                    if (desc.isNotEmpty()) appendLine("   $desc")
+                    appendLine("   url: $url")
+                    if (language.isNotEmpty()) appendLine("   language: $language, updated: $updated")
+                    appendLine()
+                }
+
+                if (totalCount > 15) {
+                    append("... ${totalCount - 15} more repositories on GitHub")
+                }
+
+                appendLine()
+                appendLine("TIP: Use browse_repo with the repo URL, or download_resource to fetch specific files.")
+            } catch (e: Exception) {
+                append("Failed to parse GitHub search results: ${e.message}")
+            }
+        }.trim()
+    }
+
+    private fun parseGitHubCodeSearchResults(json: String, query: String): String {
+        return buildString {
+            try {
+                val root = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    .parseToJsonElement(json)
+                if (root !is kotlinx.serialization.json.JsonObject) {
+                    append("GitHub API returned unexpected format. May be rate-limited (10 req/min unauthenticated).")
+                    return@buildString
+                }
+
+                val totalCount = root["total_count"]?.let {
+                    (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
+                } ?: 0
+                val items = root["items"] as? kotlinx.serialization.json.JsonArray
+
+                if (items == null || items.isEmpty()) {
+                    append("No files found on GitHub for \"$query\".")
+                    return@buildString
+                }
+
+                appendLine("GitHub Code Search: \"$query\" ($totalCount total)")
+                appendLine("---")
+
+                items.take(15).forEachIndexed { index, item ->
+                    if (item !is kotlinx.serialization.json.JsonObject) return@forEachIndexed
+                    val name = item.str("name") ?: return@forEachIndexed
+                    val path = item.str("path") ?: name
+                    val htmlUrl = item.str("html_url") ?: ""
+
+                    val repo = item["repository"] as? kotlinx.serialization.json.JsonObject
+                    val repoName = repo?.str("full_name") ?: "unknown"
+                    val repoStars = repo?.num("stargazers_count") ?: 0
+
+                    // Build raw download URL from html_url
+                    // GitHub html: https://github.com/owner/repo/blob/branch/path
+                    // Raw: https://raw.githubusercontent.com/owner/repo/branch/path
+                    val downloadUrl = htmlUrl
+                        .replace("github.com", "raw.githubusercontent.com")
+                        .replace("/blob/", "/")
+
+                    appendLine("${index + 1}. $name")
+                    appendLine("   repo: $repoName ($repoStars stars)")
+                    appendLine("   path: $path")
+                    if (downloadUrl.isNotEmpty()) {
+                        appendLine("   download_url: $downloadUrl")
+                    }
+                    appendLine()
+                }
+
+                if (totalCount > 15) {
+                    append("... ${totalCount - 15} more files on GitHub")
+                }
+
+                appendLine()
+                appendLine("TIP: Use download_resource with the download_url and a Flipper path to save files.")
+            } catch (e: Exception) {
+                append("Failed to parse GitHub code search results: ${e.message}")
+            }
+        }.trim()
+    }
+
+    // Helpers for parsing JsonObject fields
+    private fun kotlinx.serialization.json.JsonObject.str(key: String): String? {
+        val v = this[key] ?: return null
+        if (v is kotlinx.serialization.json.JsonNull) return null
+        return (v as? kotlinx.serialization.json.JsonPrimitive)?.content
+    }
+
+    private fun kotlinx.serialization.json.JsonObject.num(key: String): Int? {
+        val v = this[key] ?: return null
+        return (v as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
     }
 
     // ═══════════════════════════════════════════════════════

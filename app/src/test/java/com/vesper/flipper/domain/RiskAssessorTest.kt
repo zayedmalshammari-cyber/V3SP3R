@@ -134,6 +134,21 @@ class RiskAssessorTest {
         assertTrue(assessment.requiresConfirmation)
     }
 
+    @Test
+    fun `github search is LOW risk`() {
+        val command = ExecuteCommand(
+            action = CommandAction.GITHUB_SEARCH,
+            args = CommandArgs(command = "Samsung TV extension:ir", searchScope = "code"),
+            justification = "Find IR remote files on GitHub",
+            expectedEffect = "Return matching files from GitHub"
+        )
+
+        val assessment = riskAssessor.assess(command)
+
+        assertEquals(RiskLevel.LOW, assessment.level)
+        assertFalse(assessment.requiresConfirmation)
+    }
+
     // ============================================
     // MEDIUM Risk Operations (Diff + Apply)
     // ============================================

@@ -108,7 +108,10 @@ enum class CommandAction {
     BROWSE_REPO,
 
     @SerialName("download_resource")
-    DOWNLOAD_RESOURCE
+    DOWNLOAD_RESOURCE,
+
+    @SerialName("github_search")
+    GITHUB_SEARCH
 }
 
 @Serializable
@@ -153,7 +156,9 @@ data class CommandArgs(
     @SerialName("sub_path")
     val subPath: String? = null,
     @SerialName("download_url")
-    val downloadUrl: String? = null
+    val downloadUrl: String? = null,
+    @SerialName("search_scope")
+    val searchScope: String? = null
 )
 
 /**
