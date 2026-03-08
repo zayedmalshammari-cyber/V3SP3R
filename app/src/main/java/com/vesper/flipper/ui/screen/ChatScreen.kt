@@ -70,6 +70,7 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showHistoryDrawer by remember { mutableStateOf(false) }
+    var showAttachMenu by remember { mutableStateOf(false) }
 
     // Photo picker launcher
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -83,6 +84,47 @@ fun ChatScreen(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 4)
     ) { uris: List<Uri> ->
         uris.forEach { viewModel.addImage(it) }
+    }
+
+    // Camera capture: create a temp file URI for the camera to write to
+    val context = LocalContext.current
+    var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            cameraImageUri?.let { viewModel.addImage(it) }
+        }
+    }
+
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CaptureVideo()
+    ) { success ->
+        if (success) {
+            cameraImageUri?.let { viewModel.addImage(it) }
+        }
+    }
+
+    // Camera permission launcher
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val uri = createCameraCaptureUri(context)
+            cameraImageUri = uri
+            cameraLauncher.launch(uri)
+        }
+    }
+
+    val videoPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val uri = createCameraCaptureUri(context, video = true)
+            cameraImageUri = uri
+            videoLauncher.launch(uri)
+        }
     }
 
     // Voice input state
@@ -234,10 +276,22 @@ fun ChatScreen(
                 value = inputText,
                 onValueChange = { viewModel.updateInput(it) },
                 onSend = { viewModel.sendMessage() },
-                onAttachImage = {
+                onAttachImage = { showAttachMenu = true },
+                showAttachMenu = showAttachMenu,
+                onDismissAttachMenu = { showAttachMenu = false },
+                onPickFromGallery = {
+                    showAttachMenu = false
                     photoPickerLauncher.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
+                },
+                onTakePhoto = {
+                    showAttachMenu = false
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                },
+                onRecordVideo = {
+                    showAttachMenu = false
+                    videoPermissionLauncher.launch(Manifest.permission.CAMERA)
                 },
                 onVoiceInput = {
                     micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -710,6 +764,11 @@ private fun ChatInputBar(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttachImage: () -> Unit,
+    showAttachMenu: Boolean,
+    onDismissAttachMenu: () -> Unit,
+    onPickFromGallery: () -> Unit,
+    onTakePhoto: () -> Unit,
+    onRecordVideo: () -> Unit,
     onVoiceInput: () -> Unit,
     onStopVoice: () -> Unit,
     pendingImages: List<ImageAttachment>,
@@ -773,22 +832,44 @@ private fun ChatInputBar(
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Attachment button
-                IconButton(
-                    onClick = onAttachImage,
-                    enabled = enabled && !isProcessingImage && !isListening
-                ) {
-                    if (isProcessingImage) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = VesperOrange,
-                            strokeWidth = 2.dp
+                // Attachment button with menu
+                Box {
+                    IconButton(
+                        onClick = onAttachImage,
+                        enabled = enabled && !isProcessingImage && !isListening
+                    ) {
+                        if (isProcessingImage) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = VesperOrange,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.AddAPhoto,
+                                contentDescription = "Attach image or take photo",
+                                tint = VesperOrange
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showAttachMenu,
+                        onDismissRequest = onDismissAttachMenu
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Choose from Gallery") },
+                            onClick = onPickFromGallery,
+                            leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) }
                         )
-                    } else {
-                        Icon(
-                            Icons.Default.Image,
-                            contentDescription = "Attach image",
-                            tint = VesperOrange
+                        DropdownMenuItem(
+                            text = { Text("Take Photo") },
+                            onClick = onTakePhoto,
+                            leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Record Video") },
+                            onClick = onRecordVideo,
+                            leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null) }
                         )
                     }
                 }
@@ -1124,4 +1205,18 @@ private fun ChatHistorySheet(
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
+}
+
+/**
+ * Create a temporary file URI via FileProvider for camera capture.
+ */
+private fun createCameraCaptureUri(context: android.content.Context, video: Boolean = false): Uri {
+    val cacheDir = java.io.File(context.cacheDir, "camera").also { it.mkdirs() }
+    val ext = if (video) "mp4" else "jpg"
+    val file = java.io.File(cacheDir, "capture_${System.currentTimeMillis()}.$ext")
+    return androidx.core.content.FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file
+    )
 }
