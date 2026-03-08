@@ -180,13 +180,26 @@ class RiskAssessor @Inject constructor(
 
             // LOW risk: read-only new actions
             CommandAction.SEARCH_RESOURCES,
-            CommandAction.LIST_VAULT -> {
+            CommandAction.LIST_VAULT,
+            CommandAction.BROWSE_REPO,
+            CommandAction.GITHUB_SEARCH -> {
                 RiskAssessment(
                     level = RiskLevel.LOW,
                     reason = "Read-only catalog/inventory query",
                     affectedPaths = paths,
                     requiresDiff = false,
                     requiresConfirmation = false
+                )
+            }
+
+            // MEDIUM risk: downloads file from internet to Flipper
+            CommandAction.DOWNLOAD_RESOURCE -> {
+                RiskAssessment(
+                    level = RiskLevel.MEDIUM,
+                    reason = "Download remote file to Flipper storage",
+                    affectedPaths = paths,
+                    requiresDiff = false,
+                    requiresConfirmation = true
                 )
             }
 

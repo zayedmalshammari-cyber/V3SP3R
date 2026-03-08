@@ -5,14 +5,24 @@ import androidx.lifecycle.viewModelScope
 import com.vesper.flipper.ble.FlipperFileSystem
 import com.vesper.flipper.domain.model.*
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import javax.inject.Inject
 
 @HiltViewModel
 class FapHubViewModel @Inject constructor(
     private val flipperFileSystem: FlipperFileSystem
 ) : ViewModel() {
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
 
     // ═══════════════════════════════════════════════════════
     // TAB STATE (Apps vs Resources)
@@ -154,12 +164,54 @@ class FapHubViewModel @Inject constructor(
         viewModelScope.launch {
             _installStatus.value = _installStatus.value + (app.id to InstallStatus.Downloading(0f))
             try {
-                for (progress in listOf(0.1f, 0.3f, 0.5f, 0.7f, 0.9f)) {
-                    _installStatus.value = _installStatus.value + (app.id to InstallStatus.Downloading(progress))
-                    kotlinx.coroutines.delay(200)
+                // Resolve a direct .fap URL from the catalog download URL
+                val sourceUrl = app.downloadUrl
+                _installStatus.value = _installStatus.value + (app.id to InstallStatus.Downloading(0.1f))
+
+                // Try to find a direct .fap binary. The catalog URLs point to
+                // lab.flipper.net pages, so we attempt to scrape for a .fap link.
+                // If the URL already ends in .fap, use it directly.
+                val binaryUrl = if (sourceUrl.endsWith(".fap", ignoreCase = true)) {
+                    sourceUrl
+                } else {
+                    resolveFapUrl(sourceUrl, app.id)
                 }
+
+                _installStatus.value = _installStatus.value + (app.id to InstallStatus.Downloading(0.3f))
+
+                // Download the .fap binary
+                val bytes = withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url(binaryUrl)
+                        .header("User-Agent", "V3SP3R-FapHub/1.0")
+                        .header("Accept", "application/octet-stream,*/*")
+                        .build()
+                    httpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code}")
+                        response.body?.bytes() ?: throw java.io.IOException("Empty response")
+                    }
+                }
+
+                _installStatus.value = _installStatus.value + (app.id to InstallStatus.Downloading(0.7f))
+
+                // Validate — reject HTML responses (means no direct download available)
+                val preview = bytes.take(48).toByteArray().toString(Charsets.UTF_8).trimStart().lowercase()
+                if (preview.startsWith("<!doctype") || preview.startsWith("<html") || preview.startsWith("<head")) {
+                    throw java.io.IOException("No direct .fap download available — use the Flipper companion app or qFlipper to install ${app.name}")
+                }
+                if (bytes.isEmpty()) throw java.io.IOException("Downloaded file is empty")
+
+                _installStatus.value = _installStatus.value + (app.id to InstallStatus.Downloading(0.9f))
+
+                // Write to Flipper storage — works on any firmware (OFW, Momentum, Unleashed, Xtreme, RogueMaster)
+                // All firmwares use /ext/apps/{category}/ structure
+                val installDir = "/ext/apps/${app.category.name.lowercase()}"
+                flipperFileSystem.createDirectory(installDir) // ignore if exists
+                val targetPath = "$installDir/${app.id}.fap"
+
                 _installStatus.value = _installStatus.value + (app.id to InstallStatus.Installing)
-                kotlinx.coroutines.delay(500)
+                flipperFileSystem.writeFileBytes(targetPath, bytes).getOrThrow()
+
                 _installStatus.value = _installStatus.value + (app.id to InstallStatus.Success)
                 _installedApps.value = _installedApps.value + app.id
                 kotlinx.coroutines.delay(2000)
@@ -168,6 +220,27 @@ class FapHubViewModel @Inject constructor(
                 _installStatus.value = _installStatus.value + (app.id to InstallStatus.Error(e.message ?: "Unknown error"))
                 _error.value = "Failed to install ${app.name}: ${e.message}"
             }
+        }
+    }
+
+    private suspend fun resolveFapUrl(pageUrl: String, appIdHint: String): String = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(pageUrl)
+            .header("User-Agent", "V3SP3R-FapHub/1.0")
+            .header("Accept", "text/html")
+            .build()
+        val html = httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code} fetching $pageUrl")
+            response.body?.string() ?: throw java.io.IOException("Empty page")
+        }
+        // Find .fap URLs in the page
+        val fapRegex = Regex("""href=["']([^"']*\.fap[^"']*)["']""", RegexOption.IGNORE_CASE)
+        val candidates = fapRegex.findAll(html).map { it.groupValues[1] }.toList()
+        if (candidates.isEmpty()) {
+            // Fall back to using the original URL — download will likely fail with HTML check
+            pageUrl
+        } else {
+            candidates.firstOrNull { it.contains(appIdHint, ignoreCase = true) } ?: candidates.first()
         }
     }
 

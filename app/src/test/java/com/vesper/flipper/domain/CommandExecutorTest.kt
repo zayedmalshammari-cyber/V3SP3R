@@ -178,4 +178,28 @@ class CommandExecutorTest {
         assertTrue(result.data?.content?.contains("FapHub matches", ignoreCase = true) == true)
         verifyNoInteractions(fileSystem)
     }
+
+    @Test
+    fun `search resources returns results`() = runBlocking {
+        val command = ExecuteCommand(
+            action = CommandAction.SEARCH_RESOURCES,
+            args = CommandArgs(command = "infrared", resourceType = "IR_REMOTE"),
+            justification = "Find IR remote repos",
+            expectedEffect = "Return matching resource repos"
+        )
+        whenever(riskAssessor.assess(command)).thenReturn(
+            RiskAssessment(
+                level = RiskLevel.LOW,
+                reason = "Read-only catalog query",
+                affectedPaths = emptyList(),
+                requiresDiff = false,
+                requiresConfirmation = false
+            )
+        )
+
+        val result = commandExecutor.execute(command, "session-6")
+
+        assertTrue(result.success)
+        assertTrue(result.data?.content?.contains("Flipper-IRDB", ignoreCase = true) == true)
+    }
 }

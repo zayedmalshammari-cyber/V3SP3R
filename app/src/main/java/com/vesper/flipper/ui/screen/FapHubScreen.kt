@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vesper.flipper.domain.model.*
@@ -360,6 +361,7 @@ private fun RepoDetailSheet(
     repo: FlipperResourceRepo,
     onDismiss: () -> Unit
 ) {
+    val uriHandler = LocalUriHandler.current
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF1E1E2E)) {
         Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
             Row(verticalAlignment = Alignment.Top) {
@@ -422,9 +424,9 @@ private fun RepoDetailSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Browse on GitHub button (display only — no URL launch)
+            // Browse on GitHub
             Button(
-                onClick = { /* Would open browser — repo.repoUrl */ },
+                onClick = { uriHandler.openUri(repo.repoUrl) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = VesperOrange),
                 contentPadding = PaddingValues(vertical = 16.dp)
