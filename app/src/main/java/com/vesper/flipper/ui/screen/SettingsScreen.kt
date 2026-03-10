@@ -21,6 +21,7 @@ import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.Permission
 import com.vesper.flipper.ui.theme.*
 import com.vesper.flipper.ui.viewmodel.SettingsViewModel
+import com.vesper.flipper.voice.OpenRouterTtsService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -392,6 +393,81 @@ fun SettingsScreen(
                         subtitle = "Vibrate on confirmations",
                         checked = state.hapticFeedback,
                         onCheckedChange = { viewModel.setHapticFeedback(it) }
+                    )
+                }
+            }
+
+            // Voice / TTS Section
+            item {
+                SettingsSection(title = "Voice (OpenRouter TTS)") {
+                    SettingsSwitch(
+                        title = "Enable Voice Output",
+                        subtitle = "Speak agent responses via OpenRouter audio",
+                        checked = state.ttsEnabled,
+                        onCheckedChange = { viewModel.setTtsEnabled(it) }
+                    )
+                    Text(
+                        text = "Uses your OpenRouter API key — no extra key needed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Voice Selection
+                    var voiceExpanded by remember { mutableStateOf(false) }
+                    val currentVoice = OpenRouterTtsService.AVAILABLE_VOICES
+                        .find { it.id == state.ttsVoiceId }
+
+                    ExposedDropdownMenuBox(
+                        expanded = voiceExpanded,
+                        onExpandedChange = { voiceExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = currentVoice?.let { "${it.name} — ${it.description}" } ?: "Shimmer",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Voice") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded)
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = voiceExpanded,
+                            onDismissRequest = { voiceExpanded = false }
+                        ) {
+                            OpenRouterTtsService.AVAILABLE_VOICES.forEach { voice ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(voice.name, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                voice.description,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setTtsVoiceId(voice.id)
+                                        voiceExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    SettingsSwitch(
+                        title = "Auto-Speak",
+                        subtitle = "Automatically read agent responses aloud",
+                        checked = state.ttsAutoSpeak,
+                        onCheckedChange = { viewModel.setTtsAutoSpeak(it) }
                     )
                 }
             }

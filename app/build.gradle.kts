@@ -1,9 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.plugin.serialization")
     kotlin("kapt")
+}
+
+// Load signing properties from local.properties (not checked into git)
+val localProps = Properties().apply {
+    val localPropsFile = rootProject.file("local.properties")
+    if (localPropsFile.exists()) {
+        localPropsFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -23,13 +33,42 @@ android {
         }
     }
 
+    // Release signing — only activated when keystore properties are set.
+    // To enable: add these to local.properties (never commit this file):
+    //   RELEASE_STORE_FILE=../keystore/vesper-release.jks
+    //   RELEASE_STORE_PASSWORD=your_store_password
+    //   RELEASE_KEY_ALIAS=vesper
+    //   RELEASE_KEY_PASSWORD=your_key_password
+    val hasSigningConfig = localProps.getProperty("RELEASE_STORE_FILE") != null
+
+    if (hasSigningConfig) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(localProps.getProperty("RELEASE_STORE_FILE"))
+                storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
+                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
+                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
-        release {
+        debug {
+            // Debug builds: no minification, fast iteration
             isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
