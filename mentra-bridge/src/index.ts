@@ -70,6 +70,16 @@ export function broadcast(targets: WebSocket[], message: GlassesMessage) {
 // ==================== Sailor Mouth Mode ====================
 
 let sailorMouthEnabled = false;
+let glassesMuted = false;
+
+// ── TTS Echo Suppression ──────────────────────────────────────────
+// When TTS is playing, the glasses mic picks up the audio and
+// re-transcribes it as a user utterance, creating a feedback loop.
+// We suppress transcriptions during TTS playback + a brief cooldown.
+let ttsSpeaking = false;
+let ttsEchoSuppressionUntil = 0;
+const TTS_ECHO_COOLDOWN_MS = 2500; // Extra silence after TTS ends
+let lastSpokenText = ""; // Track what was spoken to detect echoes
 
 // Track session context so greetings feel natural
 let wakeCount = 0;
@@ -251,8 +261,19 @@ function handleMessage(sender: WebSocket, message: GlassesMessage) {
 
   switch (message.type) {
     case "VOICE_TRANSCRIPTION":
-    case "CAMERA_PHOTO":
     case "VOICE_COMMAND":
+      if (client.type === "unknown") {
+        client.type = "glasses";
+        console.log("Client identified as glasses");
+      }
+      if (glassesMuted) {
+        console.log("[Muted] Suppressing voice input");
+        break;
+      }
+      broadcast(getVesperClients(), message);
+      break;
+
+    case "CAMERA_PHOTO":
       if (client.type === "unknown") {
         client.type = "glasses";
         console.log("Client identified as glasses");
@@ -274,6 +295,10 @@ function handleMessage(sender: WebSocket, message: GlassesMessage) {
         if ("sailor_mouth" in message.metadata) {
           sailorMouthEnabled = message.metadata.sailor_mouth === "true";
           console.log(`[Config] Sailor mouth: ${sailorMouthEnabled}`);
+        }
+        if ("muted" in message.metadata) {
+          glassesMuted = message.metadata.muted === "true";
+          console.log(`[Config] Glasses muted: ${glassesMuted}`);
         }
       }
       break;
@@ -384,6 +409,19 @@ async function startMentraIntegration() {
             transcribeLanguage?: string;
           }) => {
             if (!data.isFinal || !data.text.trim()) return;
+            if (glassesMuted) return; // Muted — suppress all voice input
+
+            // ── TTS Echo Suppression ────────────────────────────
+            // Suppress transcriptions while TTS is playing or in cooldown
+            if (ttsSpeaking || Date.now() < ttsEchoSuppressionUntil) {
+              console.log(`[Echo] Suppressed during TTS: "${data.text.trim().slice(0, 40)}"`);
+              return;
+            }
+            // Also catch echoes that slip past the timing window
+            if (isLikelyTtsEcho(data.text.trim())) {
+              console.log(`[Echo] Suppressed echo match: "${data.text.trim().slice(0, 40)}"`);
+              return;
+            }
 
             const rawText = data.text.trim();
             const lowerText = rawText.toLowerCase();
@@ -411,12 +449,7 @@ async function startMentraIntegration() {
 
               // Greet on wake — cancel any in-flight speech first
               try { await session.audio.stop(); } catch { /* no-op */ }
-              session.audio
-                .speak(getWakeGreeting(hasCommand), {
-                  language: "en-GB",
-                  voice: "en-GB-Wavenet-F",
-                })
-                .catch(() => {});
+              speakWithEchoGuard(session, getWakeGreeting(hasCommand)).catch(() => {});
 
               if (hasCommand) {
                 // "Hey Vesper, scan this" — immediate command
@@ -512,8 +545,13 @@ async function startMentraIntegration() {
         // ── Camera events → V3SP3R ───────────────────────────────
         try {
           session.events.onPhotoTaken(
-            (data: { photoData: ArrayBuffer }) => {
-              const imageBase64 = Buffer.from(data.photoData).toString("base64");
+            (data: Record<string, any>) => {
+              const rawData = data.photoData ?? data.data ?? data.buffer ?? data.image ?? data.photo;
+              if (!rawData) {
+                console.error("[MentraOS] onPhotoTaken: no data field. Keys:", Object.keys(data).join(", "));
+                return;
+              }
+              const imageBase64 = Buffer.from(rawData).toString("base64");
               console.log(`[MentraOS] Photo captured: ${imageBase64.length} chars base64`);
 
               broadcast(getVesperClients(), {
@@ -642,13 +680,28 @@ async function captureAndAnalyze(session: any, prompt: string) {
 
     // Mentra SDK returns photo data under varying field names depending on version.
     // Try all known fields: photoData (docs), data, buffer, image, photo
-    const rawData = photo.photoData ?? photo.data ?? photo.buffer ?? photo.image ?? photo.photo;
+    let rawData = photo.photoData ?? photo.data ?? photo.buffer ?? photo.image ?? photo.photo;
+
+    // Handle URL-based photo responses — fetch and convert to buffer
+    if (!rawData && (photo.url || photo.photoUrl)) {
+      const photoUrl = photo.url || photo.photoUrl;
+      console.log("[MentraOS] Photo is URL-based, fetching:", photoUrl);
+      try {
+        const resp = await fetch(photoUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        rawData = Buffer.from(await resp.arrayBuffer());
+      } catch (e) {
+        console.error("[MentraOS] Failed to fetch photo from URL:", (e as Error).message);
+        return;
+      }
+    }
 
     if (!rawData) {
       console.error("[MentraOS] Photo object has no recognizable data field. Keys:", Object.keys(photo).join(", "));
-      // If the SDK returned a URL instead of raw bytes, log it
-      if (photo.url || photo.photoUrl) {
-        console.log("[MentraOS] Photo may be URL-based:", photo.url || photo.photoUrl);
+      // Log all values for debugging — truncate large values
+      for (const [k, v] of Object.entries(photo)) {
+        const preview = typeof v === "string" ? v.slice(0, 80) : typeof v;
+        console.error(`  photo.${k} = ${preview}`);
       }
       return;
     }
@@ -676,18 +729,53 @@ async function captureAndAnalyze(session: any, prompt: string) {
   }
 }
 
+/**
+ * Speak text through glasses TTS with echo suppression.
+ * Sets flags so the transcription handler knows to ignore mic input
+ * that is just the glasses speaker being picked up.
+ */
+async function speakWithEchoGuard(session: any, text: string) {
+  ttsSpeaking = true;
+  lastSpokenText = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  try {
+    await session.audio.speak(text, {
+      language: "en-GB",
+      voice: "en-GB-Wavenet-F",
+    });
+  } finally {
+    ttsSpeaking = false;
+    ttsEchoSuppressionUntil = Date.now() + TTS_ECHO_COOLDOWN_MS;
+  }
+}
+
+/**
+ * Check if a transcription looks like an echo of recent TTS output.
+ * Compares normalized text similarity.
+ */
+function isLikelyTtsEcho(transcription: string): boolean {
+  if (!lastSpokenText) return false;
+  const normalized = transcription.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  if (!normalized) return false;
+  // Check if the transcription is a substring of what was spoken or vice versa
+  if (lastSpokenText.includes(normalized) || normalized.includes(lastSpokenText)) {
+    return true;
+  }
+  // Check word overlap — if >60% of words match, it's an echo
+  const spokenWords = new Set(lastSpokenText.split(/\s+/));
+  const transWords = normalized.split(/\s+/);
+  if (transWords.length === 0) return false;
+  const overlap = transWords.filter(w => spokenWords.has(w)).length;
+  return overlap / transWords.length > 0.6;
+}
+
 /** Handle V3SP3R AI responses — speak + display on MentraOS glasses. */
 async function handleMentraResponse(session: any, message: GlassesMessage) {
   try {
     switch (message.type) {
       case "AI_RESPONSE":
         if (message.text) {
-          // Cancel any in-flight speech to prevent overlapping voices
-          try { await session.audio.stop(); } catch { /* no-op if not supported */ }
-          await session.audio.speak(message.text, {
-            language: "en-GB",
-            voice: "en-GB-Wavenet-F",
-          });
+          try { await session.audio.stop(); } catch { /* no-op */ }
+          await speakWithEchoGuard(session, message.text);
         }
         if (message.displayText) {
           await session.layouts.showReferenceCard({
@@ -702,14 +790,9 @@ async function handleMentraResponse(session: any, message: GlassesMessage) {
           await session.layouts.showTextWall(message.text, {
             durationMs: 5000,
           });
-          // Speak short status updates so user gets audio feedback
-          // (e.g. "Thinking...", "Executing read_file"). Skip long ones.
           if (message.text.length <= 50) {
             try { await session.audio.stop(); } catch { /* no-op */ }
-            await session.audio.speak(message.text, {
-              language: "en-GB",
-              voice: "en-GB-Wavenet-F",
-            });
+            await speakWithEchoGuard(session, message.text);
           }
         }
         break;

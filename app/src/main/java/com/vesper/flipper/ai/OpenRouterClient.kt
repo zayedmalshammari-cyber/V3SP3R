@@ -1,5 +1,6 @@
 package com.vesper.flipper.ai
 
+import android.util.Log
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.*
 import com.vesper.flipper.security.InputValidator
@@ -41,7 +42,6 @@ class OpenRouterClient @Inject constructor(
         encodeDefaults = true
         explicitNulls = false
         coerceInputValues = true
-        isLenient = true
     }
 
     private val client = OkHttpClient.Builder()
@@ -440,10 +440,12 @@ class OpenRouterClient @Inject constructor(
             val message = choice.message
 
             // Validate tool calls if present
-            val toolCalls = message.toolCalls?.mapNotNull { tc ->
-                // Validate tool call structure
+            val rawToolCalls = message.toolCalls
+            val toolCalls = rawToolCalls?.mapNotNull { tc ->
+                // Validate tool call structure — reject blanks but log them
                 if (tc.id.isBlank() || tc.function.name.isBlank()) {
-                    null // Skip invalid tool calls
+                    Log.w(TAG, "Dropping malformed tool call: id='${tc.id}' name='${tc.function.name}' args='${tc.function.arguments.take(100)}'")
+                    null
                 } else {
                     ToolCall(
                         id = tc.id,
@@ -452,6 +454,12 @@ class OpenRouterClient @Inject constructor(
                     )
                 }
             }?.take(MAX_TOOL_CALLS_PER_RESPONSE)
+
+            // Warn if model sent tool calls but all were malformed
+            if (!rawToolCalls.isNullOrEmpty() && toolCalls.isNullOrEmpty()) {
+                Log.e(TAG, "Model sent ${rawToolCalls.size} tool call(s) but ALL were malformed and dropped. " +
+                    "This likely means the response was not parsed correctly.")
+            }
 
             ChatCompletionResult.Success(
                 content = message.content ?: "",
@@ -1119,6 +1127,7 @@ class OpenRouterClient @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "OpenRouterClient"
         private const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
         private const val DNS_RESOLUTION_ERROR_MESSAGE =
             "Cannot resolve openrouter.ai (DNS/network issue). Verify internet access, disable broken Private DNS/VPN, then retry."

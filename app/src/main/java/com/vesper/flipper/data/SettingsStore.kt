@@ -234,6 +234,7 @@ class SettingsStore @Inject constructor(
     private val GLASSES_AUTO_SEND = booleanPreferencesKey("glasses_auto_send")
     private val GLASSES_AUTO_CONNECT = booleanPreferencesKey("glasses_auto_connect")
     private val GLASSES_SAILOR_MOUTH = booleanPreferencesKey("glasses_sailor_mouth")
+    private val GLASSES_MUTED = booleanPreferencesKey("glasses_muted")
 
     val glassesEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[GLASSES_ENABLED] ?: false
@@ -286,6 +287,16 @@ class SettingsStore @Inject constructor(
     suspend fun setGlassesSailorMouth(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[GLASSES_SAILOR_MOUTH] = enabled
+        }
+    }
+
+    val glassesMuted: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[GLASSES_MUTED] ?: false
+    }
+
+    suspend fun setGlassesMuted(muted: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[GLASSES_MUTED] = muted
         }
     }
 

@@ -526,6 +526,15 @@ fun SettingsScreen(
                             checked = state.glassesSailorMouth,
                             onCheckedChange = { viewModel.setGlassesSailorMouth(it) }
                         )
+
+                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        SettingsSwitch(
+                            title = "Mute Glasses Mic",
+                            subtitle = "Pause listening — glasses won't hear audio until unmuted.",
+                            checked = state.glassesMuted,
+                            onCheckedChange = { viewModel.setGlassesMuted(it) }
+                        )
                     }
                 }
             }

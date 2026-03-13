@@ -1930,6 +1930,7 @@ class FlipperBleService : Service() {
                     FirmwareTransportMode.CLI_AND_RPC -> "CLI+RPC"
                     FirmwareTransportMode.CLI_ONLY -> "CLI-only"
                     FirmwareTransportMode.RPC_ONLY -> "RPC-only"
+                    FirmwareTransportMode.PROBING -> "Probing..."
                     FirmwareTransportMode.UNAVAILABLE -> "Unavailable"
                 }
                 val detail = "${profile.label} | mode=$mode | ${profile.notes}"
@@ -1937,6 +1938,7 @@ class FlipperBleService : Service() {
                     FirmwareTransportMode.CLI_AND_RPC -> ConnectionCheckLevel.PASS to detail
                     FirmwareTransportMode.CLI_ONLY,
                     FirmwareTransportMode.RPC_ONLY -> ConnectionCheckLevel.WARN to detail
+                    FirmwareTransportMode.PROBING -> ConnectionCheckLevel.WARN to detail
                     FirmwareTransportMode.UNAVAILABLE -> ConnectionCheckLevel.FAIL to detail
                 }
             }
