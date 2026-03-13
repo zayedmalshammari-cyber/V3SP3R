@@ -11,6 +11,7 @@ enum class FirmwareFamily {
 
 enum class FirmwareTransportMode {
     UNAVAILABLE,
+    PROBING,
     CLI_ONLY,
     RPC_ONLY,
     CLI_AND_RPC
@@ -101,6 +102,12 @@ object FirmwareCompatibilityLayer {
                     )
                 }
             }
+
+            FirmwareTransportMode.PROBING -> FirmwareCommandCompatibility(
+                supported = true,
+                route = FirmwareCommandRoute.DIRECT_CLI,
+                message = "Transport probing in progress — attempting CLI."
+            )
 
             FirmwareTransportMode.UNAVAILABLE -> FirmwareCommandCompatibility(
                 supported = false,

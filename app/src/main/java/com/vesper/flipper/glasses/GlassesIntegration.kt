@@ -177,11 +177,17 @@ class GlassesIntegration @Inject constructor(
 
         // Sync config (sailor mouth, etc.) to bridge on change
         configSyncJob = scope.launch {
-            settingsStore.glassesSailorMouth
+            combine(
+                settingsStore.glassesSailorMouth,
+                settingsStore.glassesMuted
+            ) { sailor, muted -> sailor to muted }
                 .distinctUntilChanged()
-                .collect { sailorMouth ->
+                .collect { (sailorMouth, muted) ->
                     if (bridge.isConnected()) {
-                        bridge.sendConfig(mapOf("sailor_mouth" to sailorMouth.toString()))
+                        bridge.sendConfig(mapOf(
+                            "sailor_mouth" to sailorMouth.toString(),
+                            "muted" to muted.toString()
+                        ))
                     }
                 }
         }
@@ -225,6 +231,13 @@ class GlassesIntegration @Inject constructor(
         val text = message.text?.trim() ?: return
         if (text.isBlank()) return
         if (!message.isFinal) return // Skip partial transcriptions
+
+        // Check mute setting — when muted, ignore all voice input
+        val muted = settingsStore.glassesMuted.first()
+        if (muted) {
+            Log.d(TAG, "Glasses muted, ignoring voice: \"${text.take(40)}\"")
+            return
+        }
 
         Log.i(TAG, "Glasses voice: \"$text\"")
 

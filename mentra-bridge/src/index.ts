@@ -70,6 +70,7 @@ export function broadcast(targets: WebSocket[], message: GlassesMessage) {
 // ==================== Sailor Mouth Mode ====================
 
 let sailorMouthEnabled = false;
+let glassesMuted = false;
 
 // Track session context so greetings feel natural
 let wakeCount = 0;
@@ -251,8 +252,19 @@ function handleMessage(sender: WebSocket, message: GlassesMessage) {
 
   switch (message.type) {
     case "VOICE_TRANSCRIPTION":
-    case "CAMERA_PHOTO":
     case "VOICE_COMMAND":
+      if (client.type === "unknown") {
+        client.type = "glasses";
+        console.log("Client identified as glasses");
+      }
+      if (glassesMuted) {
+        console.log("[Muted] Suppressing voice input");
+        break;
+      }
+      broadcast(getVesperClients(), message);
+      break;
+
+    case "CAMERA_PHOTO":
       if (client.type === "unknown") {
         client.type = "glasses";
         console.log("Client identified as glasses");
@@ -274,6 +286,10 @@ function handleMessage(sender: WebSocket, message: GlassesMessage) {
         if ("sailor_mouth" in message.metadata) {
           sailorMouthEnabled = message.metadata.sailor_mouth === "true";
           console.log(`[Config] Sailor mouth: ${sailorMouthEnabled}`);
+        }
+        if ("muted" in message.metadata) {
+          glassesMuted = message.metadata.muted === "true";
+          console.log(`[Config] Glasses muted: ${glassesMuted}`);
         }
       }
       break;
@@ -384,6 +400,7 @@ async function startMentraIntegration() {
             transcribeLanguage?: string;
           }) => {
             if (!data.isFinal || !data.text.trim()) return;
+            if (glassesMuted) return; // Muted — suppress all voice input
 
             const rawText = data.text.trim();
             const lowerText = rawText.toLowerCase();
@@ -512,8 +529,13 @@ async function startMentraIntegration() {
         // ── Camera events → V3SP3R ───────────────────────────────
         try {
           session.events.onPhotoTaken(
-            (data: { photoData: ArrayBuffer }) => {
-              const imageBase64 = Buffer.from(data.photoData).toString("base64");
+            (data: Record<string, any>) => {
+              const rawData = data.photoData ?? data.data ?? data.buffer ?? data.image ?? data.photo;
+              if (!rawData) {
+                console.error("[MentraOS] onPhotoTaken: no data field. Keys:", Object.keys(data).join(", "));
+                return;
+              }
+              const imageBase64 = Buffer.from(rawData).toString("base64");
               console.log(`[MentraOS] Photo captured: ${imageBase64.length} chars base64`);
 
               broadcast(getVesperClients(), {
@@ -642,13 +664,28 @@ async function captureAndAnalyze(session: any, prompt: string) {
 
     // Mentra SDK returns photo data under varying field names depending on version.
     // Try all known fields: photoData (docs), data, buffer, image, photo
-    const rawData = photo.photoData ?? photo.data ?? photo.buffer ?? photo.image ?? photo.photo;
+    let rawData = photo.photoData ?? photo.data ?? photo.buffer ?? photo.image ?? photo.photo;
+
+    // Handle URL-based photo responses — fetch and convert to buffer
+    if (!rawData && (photo.url || photo.photoUrl)) {
+      const photoUrl = photo.url || photo.photoUrl;
+      console.log("[MentraOS] Photo is URL-based, fetching:", photoUrl);
+      try {
+        const resp = await fetch(photoUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        rawData = Buffer.from(await resp.arrayBuffer());
+      } catch (e) {
+        console.error("[MentraOS] Failed to fetch photo from URL:", (e as Error).message);
+        return;
+      }
+    }
 
     if (!rawData) {
       console.error("[MentraOS] Photo object has no recognizable data field. Keys:", Object.keys(photo).join(", "));
-      // If the SDK returned a URL instead of raw bytes, log it
-      if (photo.url || photo.photoUrl) {
-        console.log("[MentraOS] Photo may be URL-based:", photo.url || photo.photoUrl);
+      // Log all values for debugging — truncate large values
+      for (const [k, v] of Object.entries(photo)) {
+        const preview = typeof v === "string" ? v.slice(0, 80) : typeof v;
+        console.error(`  photo.${k} = ${preview}`);
       }
       return;
     }

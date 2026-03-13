@@ -94,7 +94,13 @@ class FlipperProtocol @Inject constructor() {
             checkedAtMs = System.currentTimeMillis(),
             details = "Connection reset. Capability will be rechecked."
         )
-        refreshFirmwareCompatibility()
+        // Set transport to PROBING instead of UNAVAILABLE — probes will update
+        // once they complete. This prevents the UI from showing "transport
+        // unavailable" during the brief window between connect and probe.
+        _firmwareCompatibility.value = _firmwareCompatibility.value.copy(
+            transportMode = FirmwareTransportMode.PROBING,
+            notes = "Probing transport capabilities..."
+        )
 
         pendingRequest?.let { pending ->
             pending.continuation.complete(ProtocolResponse.Error("Connection reset"))

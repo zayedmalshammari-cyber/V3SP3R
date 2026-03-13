@@ -35,7 +35,8 @@ data class SettingsState(
     val glassesBridgeUrl: String = "",
     val glassesAutoSend: Boolean = true,
     val glassesAutoConnect: Boolean = false,
-    val glassesSailorMouth: Boolean = false
+    val glassesSailorMouth: Boolean = false,
+    val glassesMuted: Boolean = false
 )
 
 @HiltViewModel
@@ -114,14 +115,16 @@ class SettingsViewModel @Inject constructor(
                     settingsStore.glassesBridgeUrl,
                     settingsStore.glassesAutoSend,
                     settingsStore.glassesAutoConnect,
-                    settingsStore.glassesSailorMouth
+                    settingsStore.glassesSailorMouth,
+                    settingsStore.glassesMuted
                 ) { values ->
                     GlassesSettingsBundle(
                         glassesEnabled = values[0] as Boolean,
                         glassesBridgeUrl = (values[1] as? String) ?: "",
                         glassesAutoSend = values[2] as Boolean,
                         glassesAutoConnect = values[3] as Boolean,
-                        glassesSailorMouth = values[4] as Boolean
+                        glassesSailorMouth = values[4] as Boolean,
+                        glassesMuted = values[5] as Boolean
                     )
                 }
             ) { base, glasses ->
@@ -130,7 +133,8 @@ class SettingsViewModel @Inject constructor(
                     glassesBridgeUrl = glasses.glassesBridgeUrl,
                     glassesAutoSend = glasses.glassesAutoSend,
                     glassesAutoConnect = glasses.glassesAutoConnect,
-                    glassesSailorMouth = glasses.glassesSailorMouth
+                    glassesSailorMouth = glasses.glassesSailorMouth,
+                    glassesMuted = glasses.glassesMuted
                 )
             }.collect { settings ->
                 _state.update { it.copy(
@@ -152,7 +156,8 @@ class SettingsViewModel @Inject constructor(
                     glassesBridgeUrl = settings.glassesBridgeUrl,
                     glassesAutoSend = settings.glassesAutoSend,
                     glassesAutoConnect = settings.glassesAutoConnect,
-                    glassesSailorMouth = settings.glassesSailorMouth
+                    glassesSailorMouth = settings.glassesSailorMouth,
+                    glassesMuted = settings.glassesMuted
                 )}
             }
         }
@@ -337,6 +342,13 @@ class SettingsViewModel @Inject constructor(
             _state.update { it.copy(glassesSailorMouth = enabled) }
         }
     }
+
+    fun setGlassesMuted(muted: Boolean) {
+        viewModelScope.launch {
+            settingsStore.setGlassesMuted(muted)
+            _state.update { it.copy(glassesMuted = muted) }
+        }
+    }
 }
 
 private data class TtsSettingsBundle(
@@ -352,5 +364,6 @@ private data class GlassesSettingsBundle(
     val glassesBridgeUrl: String,
     val glassesAutoSend: Boolean,
     val glassesAutoConnect: Boolean,
-    val glassesSailorMouth: Boolean
+    val glassesSailorMouth: Boolean,
+    val glassesMuted: Boolean
 )
