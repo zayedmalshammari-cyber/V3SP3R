@@ -47,6 +47,8 @@ class GlassesBridgeClient @Inject constructor() {
     val incomingMessages: SharedFlow<GlassesMessage> = _incomingMessages.asSharedFlow()
 
     private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
         .pingInterval(PING_INTERVAL_SEC, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // No read timeout for WebSocket
         .build()
