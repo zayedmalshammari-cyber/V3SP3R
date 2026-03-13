@@ -65,9 +65,15 @@ class GlassesBridgeClient @Inject constructor() {
      */
     fun connect(url: String) {
         if (webSocket != null) disconnect()
-        bridgeUrl = url
+        val sanitized = sanitizeUrl(url)
+        if (sanitized == null) {
+            _state.value = BridgeState.Error("Invalid bridge URL: $url")
+            Log.w(TAG, "Invalid bridge URL, not connecting: $url")
+            return
+        }
+        bridgeUrl = sanitized
         reconnectAttempts = 0
-        doConnect(url)
+        doConnect(sanitized)
     }
 
     /**
@@ -119,10 +125,17 @@ class GlassesBridgeClient @Inject constructor() {
         _state.value = BridgeState.Connecting(url)
         Log.i(TAG, "Connecting to glasses bridge: $url")
 
-        val request = Request.Builder()
-            .url(url)
-            .header("X-Vesper-Client", "v3sp3r-android")
-            .build()
+        val request = try {
+            Request.Builder()
+                .url(url)
+                .header("X-Vesper-Client", "v3sp3r-android")
+                .build()
+        } catch (e: Exception) {
+            isConnecting.set(false)
+            _state.value = BridgeState.Error("Invalid URL: ${e.message}")
+            Log.e(TAG, "Failed to build request for bridge URL: $url", e)
+            return
+        }
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -198,6 +211,34 @@ class GlassesBridgeClient @Inject constructor() {
             delay(delay)
             doConnect(url)
         }
+    }
+
+    /**
+     * Sanitize and normalize a bridge URL.
+     * Accepts https:// or http:// (auto-converts to wss:// / ws://) and
+     * trims whitespace. Returns null if the URL is fundamentally invalid.
+     */
+    private fun sanitizeUrl(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+
+        // Auto-convert https/http to wss/ws for WebSocket
+        val converted = when {
+            trimmed.startsWith("https://", ignoreCase = true) ->
+                "wss://" + trimmed.substring("https://".length)
+            trimmed.startsWith("http://", ignoreCase = true) ->
+                "ws://" + trimmed.substring("http://".length)
+            trimmed.startsWith("wss://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("ws://", ignoreCase = true) -> trimmed
+            // No scheme — assume wss
+            else -> "wss://$trimmed"
+        }
+
+        // Basic validity: must have a host after the scheme
+        val hostPart = converted.substringAfter("://")
+        if (hostPart.isBlank() || hostPart.startsWith("/")) return null
+
+        return converted
     }
 
     private fun truncateForDisplay(text: String): String {

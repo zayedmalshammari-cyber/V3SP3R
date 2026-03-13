@@ -118,13 +118,18 @@ class ChatViewModel @Inject constructor(
 
         // Auto-connect glasses bridge if configured
         viewModelScope.launch {
-            val autoConnect = settingsStore.glassesAutoConnect.first()
-            val enabled = settingsStore.glassesEnabled.first()
-            if (autoConnect && enabled) {
-                val url = settingsStore.glassesBridgeUrl.first()
-                if (!url.isNullOrBlank()) {
-                    glassesIntegration.connect(url)
+            try {
+                val autoConnect = settingsStore.glassesAutoConnect.first()
+                val enabled = settingsStore.glassesEnabled.first()
+                if (autoConnect && enabled) {
+                    val url = settingsStore.glassesBridgeUrl.first()
+                    if (!url.isNullOrBlank()) {
+                        glassesIntegration.connect(url)
+                    }
                 }
+            } catch (e: Exception) {
+                // Don't let a bad bridge URL crash the app on startup
+                android.util.Log.w("ChatViewModel", "Glasses auto-connect failed: ${e.message}")
             }
         }
 
@@ -213,8 +218,12 @@ class ChatViewModel @Inject constructor(
      */
     fun connectGlasses(bridgeUrl: String) {
         viewModelScope.launch {
-            settingsStore.setGlassesBridgeUrl(bridgeUrl)
-            glassesIntegration.connect(bridgeUrl)
+            try {
+                settingsStore.setGlassesBridgeUrl(bridgeUrl)
+                glassesIntegration.connect(bridgeUrl)
+            } catch (e: Exception) {
+                android.util.Log.w("ChatViewModel", "Glasses connect failed: ${e.message}")
+            }
         }
     }
 
