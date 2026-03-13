@@ -234,10 +234,21 @@ class GlassesIntegration @Inject constructor(
         // Cancel any previous hold timer
         photoHoldJob?.cancel()
 
-        // Expose photo to UI as pending
+        // If the photo arrived with a prompt (e.g. voice-triggered "what am I
+        // looking at?"), send immediately — no reason to wait for a follow-up.
+        if (!promptText.isNullOrBlank()) {
+            Log.i(TAG, "Photo has prompt — sending immediately: \"$promptText\"")
+            _pendingGlassesPhoto.value = null
+            vesperAgent.sendMessage(
+                userMessage = promptText,
+                imageAttachments = listOf(attachment)
+            )
+            return
+        }
+
+        // No prompt — hold as pending so it can combine with the next voice/text input
         _pendingGlassesPhoto.value = attachment
 
-        // Start a timeout: if no directive arrives, auto-send with default prompt
         photoHoldJob = scope.launch {
             delay(PHOTO_HOLD_TIMEOUT_MS)
             val stillPending = _pendingGlassesPhoto.value
@@ -245,7 +256,7 @@ class GlassesIntegration @Inject constructor(
                 Log.i(TAG, "Photo hold timed out — sending with default prompt")
                 _pendingGlassesPhoto.value = null
                 vesperAgent.sendMessage(
-                    userMessage = promptText ?: "What am I looking at?",
+                    userMessage = "What am I looking at?",
                     imageAttachments = listOf(attachment)
                 )
             }
