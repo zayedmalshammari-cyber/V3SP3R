@@ -450,7 +450,7 @@ private fun EmptyChat(onSuggestionClick: (String) -> Unit) {
             ) {
                 SuggestionChip("List files on the SD card", onClick = onSuggestionClick)
                 SuggestionChip("Forge a Sub-GHz signal", onClick = onSuggestionClick)
-                SuggestionChip("Install an app from FapHub", onClick = onSuggestionClick)
+                SuggestionChip("Create a universal remote for my TV", onClick = onSuggestionClick)
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(

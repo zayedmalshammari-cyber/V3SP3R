@@ -77,7 +77,7 @@ fun FapHubScreen(
                             Text("ARSENAL", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = VesperOrange, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         }
                     }
-                    Text("Apps & public resource libraries • ${installedApps.size} installed", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text("Flipper App Hub and resource libraries • ${installedApps.size} installed", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
                 IconButton(onClick = { viewModel.refresh() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = VesperOrange)
