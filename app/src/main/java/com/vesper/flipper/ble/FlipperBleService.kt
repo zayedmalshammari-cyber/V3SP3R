@@ -174,7 +174,16 @@ class FlipperBleService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_FOREGROUND -> startForegroundService()
-            ACTION_STOP -> stopSelf()
+            ACTION_STOP -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            else -> {
+                // START_STICKY restarts with a null intent after the system kills the
+                // service. We must call startForeground() promptly or Android 12+ will
+                // throw ForegroundServiceDidNotStartInTimeException and crash the app.
+                startForegroundService()
+            }
         }
         return START_STICKY
     }
