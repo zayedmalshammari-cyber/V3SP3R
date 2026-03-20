@@ -1479,44 +1479,60 @@ class OpenRouterClient @Inject constructor(
             )
         )
 
-        /**
-         * Build a copy of the tool schema WITHOUT glasses-only actions
-         * (request_photo). This prevents the model from calling request_photo
-         * when the user has smart glasses disabled, which would fail and
-         * confuse normal photo workflows.
-         */
-        private fun buildToolWithoutGlasses(): OpenRouterTool {
-            val fullParams = EXECUTE_COMMAND_TOOL.function.parameters
-            val properties = fullParams["properties"] as? JsonObject ?: return EXECUTE_COMMAND_TOOL
-            val actionProp = properties["action"] as? JsonObject ?: return EXECUTE_COMMAND_TOOL
-            val actionEnum = actionProp["enum"] as? JsonArray ?: return EXECUTE_COMMAND_TOOL
+    }
 
-            // Filter out glasses-only actions and the photo_prompt arg
-            val filteredEnum = JsonArray(actionEnum.filter {
-                it is JsonPrimitive && it.contentOrNull != "request_photo"
-            })
-            val filteredActionProp = JsonObject(actionProp.toMutableMap().apply {
-                put("enum", filteredEnum)
-                // Clean up the description too
-                put("description", JsonPrimitive("The action to perform on the Flipper Zero"))
-            })
-            val filteredProperties = JsonObject(properties.toMutableMap().apply {
-                put("action", filteredActionProp)
-                remove("photo_prompt")
-            })
-            val filteredParams = JsonObject(fullParams.toMutableMap().apply {
-                put("properties", filteredProperties)
-            })
+    /**
+     * Build a copy of the tool schema WITHOUT glasses-only actions
+     * (request_photo). This prevents the model from calling request_photo
+     * when the user has smart glasses disabled, which would fail and
+     * confuse normal photo workflows.
+     */
+    private fun buildToolWithoutGlasses(): OpenRouterTool {
+        val fullParams = EXECUTE_COMMAND_TOOL.function.parameters
+        val properties = fullParams["properties"] as? JsonObject ?: return EXECUTE_COMMAND_TOOL
+        val actionProp = properties["action"] as? JsonObject ?: return EXECUTE_COMMAND_TOOL
+        val actionEnum = actionProp["enum"] as? JsonArray ?: return EXECUTE_COMMAND_TOOL
 
-            return OpenRouterTool(
-                type = "function",
-                function = OpenRouterToolFunction(
-                    name = EXECUTE_COMMAND_TOOL.function.name,
-                    description = EXECUTE_COMMAND_TOOL.function.description,
-                    parameters = filteredParams
-                )
+        // 1. Strip request_photo from the action enum
+        val filteredEnum = JsonArray(actionEnum.filter {
+            it is JsonPrimitive && it.contentOrNull != "request_photo"
+        })
+        val filteredActionProp = JsonObject(actionProp.toMutableMap().apply {
+            put("enum", filteredEnum)
+            put("description", JsonPrimitive("The action to perform on the Flipper Zero"))
+        })
+
+        // 2. Strip photo_prompt from args.properties (it's nested inside the args object)
+        val argsProp = properties["args"] as? JsonObject
+        val filteredArgsProp = if (argsProp != null) {
+            val argsInnerProps = argsProp["properties"] as? JsonObject
+            if (argsInnerProps != null) {
+                val filteredArgsInner = JsonObject(argsInnerProps.toMutableMap().apply {
+                    remove("photo_prompt")
+                })
+                JsonObject(argsProp.toMutableMap().apply {
+                    put("properties", filteredArgsInner)
+                })
+            } else argsProp
+        } else null
+
+        // 3. Reassemble top-level properties
+        val filteredProperties = JsonObject(properties.toMutableMap().apply {
+            put("action", filteredActionProp)
+            if (filteredArgsProp != null) put("args", filteredArgsProp)
+        })
+        val filteredParams = JsonObject(fullParams.toMutableMap().apply {
+            put("properties", filteredProperties)
+        })
+
+        return OpenRouterTool(
+            type = "function",
+            function = OpenRouterToolFunction(
+                name = EXECUTE_COMMAND_TOOL.function.name,
+                description = EXECUTE_COMMAND_TOOL.function.description,
+                parameters = filteredParams
             )
-        }
+        )
     }
 }
 

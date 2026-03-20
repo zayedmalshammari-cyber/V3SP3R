@@ -500,10 +500,11 @@ class ChatViewModel @Inject constructor(
                 )
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // VesperAgent.sendMessage() has its own try-catch that resets
+                // isLoading. This outer catch handles truly unexpected errors
+                // (e.g. serialization bugs) so the user sees feedback.
                 Log.e(TAG, "sendMessage failed", e)
-                // Reset loading state so the UI isn't stuck
-                // (vesperAgent exposes conversationState but we can't write it
-                //  directly — send an empty error-recovery update instead)
+                _imageError.value = "Failed to send: ${e.message?.take(80) ?: "unknown error"}"
             }
         }
     }
